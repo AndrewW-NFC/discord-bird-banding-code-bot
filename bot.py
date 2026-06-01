@@ -351,19 +351,20 @@ async def on_message(message):
 
 	if not results:
 		return
+# Limit automatic helper reply to once per UTC day per code per thread/channel.
+new_codes_today = get_new_codes_today(message, results)
 
-	# Limit automatic helper reply to once per UTC day per thread/channel.
-	if already_posted_today(message):
-		return
+if not new_codes_today:
+    return
 
-	try:
-		await message.reply(
-			"Bird codes detected.",
-			view=ShowBirdCodesView(),
-			mention_author=False,
-			allowed_mentions=discord.AllowedMentions.none(),
-		)
-		mark_posted_today(message)
+try:
+    await message.reply(
+        "Bird codes detected.",
+        view=ShowBirdCodesView(),
+        mention_author=False,
+        allowed_mentions=discord.AllowedMentions.none(),
+    )
+    mark_codes_seen_today(message, new_codes_today)
 	except discord.Forbidden:
 		# Bot lacks permission to reply in this channel.
 		pass
