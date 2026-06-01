@@ -20,7 +20,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # Optional:
 # If you want the bot to post "Show me" buttons only in certain channels,
-# add ENABLED_CHANNEL_IDS in Render or .env as a comma-separated list:
+# add ENABLED_CHANNEL_IDS in Northflank or .env as a comma-separated list:
 # ENABLED_CHANNEL_IDS=123456789,987654321
 #
 # For forum posts/threads, this code checks both:
@@ -31,38 +31,38 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 ENABLED_CHANNEL_IDS_RAW = os.getenv("ENABLED_CHANNEL_IDS", "").strip()
 
 if ENABLED_CHANNEL_IDS_RAW:
-	ENABLED_CHANNEL_IDS = {
-		int(channel_id.strip())
-		for channel_id in ENABLED_CHANNEL_IDS_RAW.split(",")
-		if channel_id.strip()
-	}
+    ENABLED_CHANNEL_IDS = {
+        int(channel_id.strip())
+        for channel_id in ENABLED_CHANNEL_IDS_RAW.split(",")
+        if channel_id.strip()
+    }
 else:
-	ENABLED_CHANNEL_IDS = set()
+    ENABLED_CHANNEL_IDS = set()
 
 
 def today_key():
-	"""Use UTC date for the once-per-day cooldown."""
-	return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    """Use UTC date for the once-per-day cooldown."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def load_state():
-	if not STATE_FILE.exists():
-		return {}
+    if not STATE_FILE.exists():
+        return {}
 
-	try:
-		with STATE_FILE.open("r", encoding="utf-8") as f:
-			return json.load(f)
-	except (json.JSONDecodeError, OSError):
-		return {}
+    try:
+        with STATE_FILE.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def save_state(state):
-	try:
-		with STATE_FILE.open("w", encoding="utf-8") as f:
-			json.dump(state, f, indent=2, sort_keys=True)
-	except OSError:
-		# Do not crash the bot if state cannot be saved.
-		pass
+    try:
+        with STATE_FILE.open("w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2, sort_keys=True)
+    except OSError:
+        # Do not crash the bot if state cannot be saved.
+        pass
 
 
 def get_thread_or_channel_key(message):
@@ -101,7 +101,6 @@ def get_new_codes_today(message, results):
     today = today_key()
 
     all_codes_in_message = get_codes_from_results(results)
-
     thread_state = state.get(key, {})
 
     # Backward compatibility: older state used state[key] = "YYYY-MM-DD".
@@ -148,41 +147,41 @@ def mark_codes_seen_today(message, codes):
 
 
 def channel_is_enabled(message):
-	"""
-	If no channel filter is set, allow all channels the bot can read.
+    """
+    If no channel filter is set, allow all channels the bot can read.
 
-	If a channel filter is set:
-	- allow a normal channel if its ID is listed
-	- allow a thread if either the thread ID or its parent channel ID is listed
-	"""
-	if not ENABLED_CHANNEL_IDS:
-		return True
+    If a channel filter is set:
+    - allow a normal channel if its ID is listed
+    - allow a thread if either the thread ID or its parent channel ID is listed
+    """
+    if not ENABLED_CHANNEL_IDS:
+        return True
 
-	channel = message.channel
+    channel = message.channel
 
-	if channel.id in ENABLED_CHANNEL_IDS:
-		return True
+    if channel.id in ENABLED_CHANNEL_IDS:
+        return True
 
-	parent = getattr(channel, "parent", None)
-	if parent and parent.id in ENABLED_CHANNEL_IDS:
-		return True
+    parent = getattr(channel, "parent", None)
+    if parent and parent.id in ENABLED_CHANNEL_IDS:
+        return True
 
-	return False
+    return False
 
 
 def load_bird_codes():
-	codes = {}
+    codes = {}
 
-	with CODES_FILE.open("r", encoding="utf-8-sig", newline="") as f:
-		reader = csv.DictReader(f)
-		for row in reader:
-			code = row["code"].strip().upper()
-			common_name = row["common_name"].strip()
+    with CODES_FILE.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            code = row["code"].strip().upper()
+            common_name = row["common_name"].strip()
 
-			if code and common_name:
-				codes[code] = common_name
+            if code and common_name:
+                codes[code] = common_name
 
-	return codes
+    return codes
 
 
 BIRD_CODES = load_bird_codes()
@@ -192,118 +191,118 @@ CODE_PATTERN = re.compile(r"\b[A-Z]{4}\b")
 
 
 def decode_codes_in_text(text):
-	found = []
+    found = []
 
-	for match in CODE_PATTERN.finditer(text or ""):
-		code = match.group(0).upper()
-		common_name = BIRD_CODES.get(code)
+    for match in CODE_PATTERN.finditer(text or ""):
+        code = match.group(0).upper()
+        common_name = BIRD_CODES.get(code)
 
-		if common_name:
-			found.append((code, common_name))
+        if common_name:
+            found.append((code, common_name))
 
-	return found
+    return found
 
 
 def unique_results(results):
-	unique = []
-	seen = set()
+    unique = []
+    seen = set()
 
-	for code, common_name in results:
-		if code not in seen:
-			unique.append((code, common_name))
-			seen.add(code)
+    for code, common_name in results:
+        if code not in seen:
+            unique.append((code, common_name))
+            seen.add(code)
 
-	return unique
+    return unique
 
 
 def get_thread_title_text_from_message(message):
-	"""
-	If the message is inside a thread or forum post, message.channel.name is
-	the thread/forum post title. For ordinary text channels, this function
-	returns an empty string so the bot does not scan channel names.
-	"""
-	if isinstance(message.channel, discord.Thread):
-		return message.channel.name or ""
+    """
+    If the message is inside a thread or forum post, message.channel.name is
+    the thread/forum post title. For ordinary text channels, this function
+    returns an empty string so the bot does not scan channel names.
+    """
+    if isinstance(message.channel, discord.Thread):
+        return message.channel.name or ""
 
-	return ""
+    return ""
 
 
 def decode_codes_from_message_and_title(message):
-	message_results = decode_codes_in_text(message.content or "")
-	title_results = decode_codes_in_text(get_thread_title_text_from_message(message))
+    message_results = decode_codes_in_text(message.content or "")
+    title_results = decode_codes_in_text(get_thread_title_text_from_message(message))
 
-	return unique_results(message_results + title_results)
+    return unique_results(message_results + title_results)
 
 
 def format_results(results):
-	if not results:
-		return "I didn’t find any recognized bird codes in that message or thread title."
+    if not results:
+        return "I didn’t find any recognized bird codes in that message or thread title."
 
-	return "\n".join(f"**{code}** = {common_name}" for code, common_name in results)
+    return "\n".join(f"**{code}** = {common_name}" for code, common_name in results)
 
 
 class ShowBirdCodesView(discord.ui.View):
-	def __init__(self):
-		# timeout=None makes the button view persistent while the bot is running.
-		super().__init__(timeout=None)
+    def __init__(self):
+        # timeout=None makes the button view persistent while the bot is running.
+        super().__init__(timeout=None)
 
-	@discord.ui.button(
-		label="Show me",
-		style=discord.ButtonStyle.secondary,
-		emoji="🐦",
-		custom_id="bird_code_helper_show_me",
-	)
-	async def show_me(
-		self,
-		interaction: discord.Interaction,
-		button: discord.ui.Button,
-	):
-		helper_message = interaction.message
+    @discord.ui.button(
+        label="Show me",
+        style=discord.ButtonStyle.secondary,
+        emoji="🐦",
+        custom_id="bird_code_helper_show_me",
+    )
+    async def show_me(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        helper_message = interaction.message
 
-		if not helper_message or not helper_message.reference:
-			await interaction.response.send_message(
-				"I couldn’t find the original message.",
-				ephemeral=True,
-			)
-			return
+        if not helper_message or not helper_message.reference:
+            await interaction.response.send_message(
+                "I couldn’t find the original message.",
+                ephemeral=True,
+            )
+            return
 
-		source_message_id = helper_message.reference.message_id
+        source_message_id = helper_message.reference.message_id
 
-		if not source_message_id:
-			await interaction.response.send_message(
-				"I couldn’t find the original message.",
-				ephemeral=True,
-			)
-			return
+        if not source_message_id:
+            await interaction.response.send_message(
+                "I couldn’t find the original message.",
+                ephemeral=True,
+            )
+            return
 
-		try:
-			source_message = await interaction.channel.fetch_message(source_message_id)
-		except discord.NotFound:
-			await interaction.response.send_message(
-				"I couldn’t find the original message. It may have been deleted.",
-				ephemeral=True,
-			)
-			return
-		except discord.Forbidden:
-			await interaction.response.send_message(
-				"I don’t have permission to read the original message.",
-				ephemeral=True,
-			)
-			return
-		except discord.HTTPException:
-			await interaction.response.send_message(
-				"Something went wrong while reading the original message.",
-				ephemeral=True,
-			)
-			return
+        try:
+            source_message = await interaction.channel.fetch_message(source_message_id)
+        except discord.NotFound:
+            await interaction.response.send_message(
+                "I couldn’t find the original message. It may have been deleted.",
+                ephemeral=True,
+            )
+            return
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "I don’t have permission to read the original message.",
+                ephemeral=True,
+            )
+            return
+        except discord.HTTPException:
+            await interaction.response.send_message(
+                "Something went wrong while reading the original message.",
+                ephemeral=True,
+            )
+            return
 
-		results = decode_codes_from_message_and_title(source_message)
-		response = format_results(results)
+        results = decode_codes_from_message_and_title(source_message)
+        response = format_results(results)
 
-		await interaction.response.send_message(
-			response,
-			ephemeral=True,
-		)
+        await interaction.response.send_message(
+            response,
+            ephemeral=True,
+        )
 
 
 intents = discord.Intents.default()
@@ -314,84 +313,85 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-	# Re-register the persistent button view after startup.
-	bot.add_view(ShowBirdCodesView())
+    # Re-register the persistent button view after startup.
+    bot.add_view(ShowBirdCodesView())
 
-	print(f"Logged in as {bot.user}.")
+    print(f"Logged in as {bot.user}.")
 
-	# Since the Apps/context-menu command has been removed,
-	# this should sync only one global command: /birdcode.
-	synced = await bot.tree.sync()
-	print(f"Synced {len(synced)} global command(s).")
+    # Since the Apps/context-menu command has been removed,
+    # this should sync only one global command: /birdcode.
+    synced = await bot.tree.sync()
+    print(f"Synced {len(synced)} global command(s).")
 
-	# Optional one-time cleanup for your original test server:
-	# If GUILD_ID is present, this clears old server-specific commands,
-	# including the former Apps → Bird Code Helper → Decode bird codes command.
-	guild_id = os.getenv("GUILD_ID")
-	if guild_id:
-		guild = discord.Object(id=int(guild_id))
-		bot.tree.clear_commands(guild=guild)
-		guild_synced = await bot.tree.sync(guild=guild)
-		print(f"Cleared server-specific commands for {guild_id}.")
-		print(f"Synced {len(guild_synced)} server-specific command(s).")
+    # Optional one-time cleanup for your original test server:
+    # If GUILD_ID is present, this clears old server-specific commands,
+    # including the former Apps → Bird Code Helper → Decode bird codes command.
+    guild_id = os.getenv("GUILD_ID")
+    if guild_id:
+        guild = discord.Object(id=int(guild_id))
+        bot.tree.clear_commands(guild=guild)
+        guild_synced = await bot.tree.sync(guild=guild)
+        print(f"Cleared server-specific commands for {guild_id}.")
+        print(f"Synced {len(guild_synced)} server-specific command(s).")
 
 
 @bot.event
 async def on_message(message):
-	# Ignore bot messages, including this bot's own helper messages.
-	if message.author.bot:
-		return
+    # Ignore bot messages, including this bot's own helper messages.
+    if message.author.bot:
+        return
 
-	# Optional channel restriction.
-	# If ENABLED_CHANNEL_IDS is empty, the bot works in all channels it can read.
-	if not channel_is_enabled(message):
-		return
+    # Optional channel restriction.
+    # If ENABLED_CHANNEL_IDS is empty, the bot works in all channels it can read.
+    if not channel_is_enabled(message):
+        return
 
-	results = decode_codes_from_message_and_title(message)
+    results = decode_codes_from_message_and_title(message)
 
-	if not results:
-		return
-# Limit automatic helper reply to once per UTC day per code per thread/channel.
-new_codes_today = get_new_codes_today(message, results)
+    if not results:
+        return
 
-if not new_codes_today:
-    return
+    # Limit automatic helper reply to once per UTC day per code per thread/channel.
+    new_codes_today = get_new_codes_today(message, results)
 
-try:
-    await message.reply(
-        "Bird codes detected.",
-        view=ShowBirdCodesView(),
-        mention_author=False,
-        allowed_mentions=discord.AllowedMentions.none(),
-    )
-    mark_codes_seen_today(message, new_codes_today)
-	except discord.Forbidden:
-		# Bot lacks permission to reply in this channel.
-		pass
-	except discord.HTTPException:
-		# Avoid crashing the bot for one failed helper message.
-		pass
+    if not new_codes_today:
+        return
+
+    try:
+        await message.reply(
+            "Bird codes detected.",
+            view=ShowBirdCodesView(),
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        mark_codes_seen_today(message, new_codes_today)
+    except discord.Forbidden:
+        # Bot lacks permission to reply in this channel.
+        pass
+    except discord.HTTPException:
+        # Avoid crashing the bot for one failed helper message.
+        pass
 
 
 @bot.tree.command(name="birdcode", description="Look up a 4-letter bird code.")
 @app_commands.describe(code="Example: AMRO, NOCA, BCCH")
 async def birdcode(interaction: discord.Interaction, code: str):
-	normalized = code.strip().upper()
-	common_name = BIRD_CODES.get(normalized)
+    normalized = code.strip().upper()
+    common_name = BIRD_CODES.get(normalized)
 
-	if common_name:
-		await interaction.response.send_message(
-			f"**{normalized}** = {common_name}",
-			ephemeral=True,
-		)
-	else:
-		await interaction.response.send_message(
-			f"I don’t recognize **{normalized}** as a bird code in the current list.",
-			ephemeral=True,
-		)
+    if common_name:
+        await interaction.response.send_message(
+            f"**{normalized}** = {common_name}",
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            f"I don’t recognize **{normalized}** as a bird code in the current list.",
+            ephemeral=True,
+        )
 
 
 if not DISCORD_TOKEN:
-	raise RuntimeError("Missing DISCORD_TOKEN environment variable.")
+    raise RuntimeError("Missing DISCORD_TOKEN environment variable.")
 
 bot.run(DISCORD_TOKEN)
