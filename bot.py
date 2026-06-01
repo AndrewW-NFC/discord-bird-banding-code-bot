@@ -66,27 +66,85 @@ def save_state(state):
 
 
 def get_thread_or_channel_key(message):
-	"""
-	Discord threads are channels.
-	For a thread/forum post, message.channel.id is the thread ID.
-	For a normal text channel, message.channel.id is the channel ID.
-	"""
-	guild_id = message.guild.id if message.guild else "dm"
-	channel_id = message.channel.id
-	return f"{guild_id}:{channel_id}"
+    """
+    Discord threads are channels.
+    For a thread/forum post, message.channel.id is the thread ID.
+    For a normal text channel, message.channel.id is the channel ID.
+    """
+    guild_id = message.guild.id if message.guild else "dm"
+    channel_id = message.channel.id
+    return f"{guild_id}:{channel_id}"
 
 
-def already_posted_today(message):
-	state = load_state()
-	key = get_thread_or_channel_key(message)
-	return state.get(key) == today_key()
+def get_codes_from_results(results):
+    """
+    Return unique codes from a decoded result list, preserving order.
+    """
+    codes = []
+    seen = set()
+
+    for code, _common_name in results:
+        if code not in seen:
+            codes.append(code)
+            seen.add(code)
+
+    return codes
 
 
-def mark_posted_today(message):
-	state = load_state()
-	key = get_thread_or_channel_key(message)
-	state[key] = today_key()
-	save_state(state)
+def get_new_codes_today(message, results):
+    """
+    Return codes in this message/title that have not yet triggered
+    the helper today in this thread/channel.
+    """
+    state = load_state()
+    key = get_thread_or_channel_key(message)
+    today = today_key()
+
+    all_codes_in_message = get_codes_from_results(results)
+
+    thread_state = state.get(key, {})
+
+    # Backward compatibility: older state used state[key] = "YYYY-MM-DD".
+    # If we see that old format, ignore it and start using per-code tracking.
+    if not isinstance(thread_state, dict):
+        thread_state = {}
+
+    seen_today = set(thread_state.get(today, []))
+
+    return [
+        code
+        for code in all_codes_in_message
+        if code not in seen_today
+    ]
+
+
+def mark_codes_seen_today(message, codes):
+    """
+    Mark specific codes as having triggered the helper today
+    in this thread/channel.
+    """
+    if not codes:
+        return
+
+    state = load_state()
+    key = get_thread_or_channel_key(message)
+    today = today_key()
+
+    thread_state = state.get(key, {})
+
+    # Backward compatibility with old state format.
+    if not isinstance(thread_state, dict):
+        thread_state = {}
+
+    seen_today = set(thread_state.get(today, []))
+    seen_today.update(codes)
+
+    # Keep only today's data for this thread/channel so the file does not grow forever.
+    state[key] = {
+        today: sorted(seen_today)
+    }
+
+    save_state(state)
 
 
 def channel_is_enabled(message):
