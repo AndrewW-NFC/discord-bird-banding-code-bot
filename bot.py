@@ -15,7 +15,29 @@ BASE_DIR = Path(__file__).resolve().parent
 CODES_FILE = BASE_DIR / "bird_codes.csv"
 STATE_FILE = BASE_DIR / "bird_code_state.json"
 
-HELPER_MESSAGE_TEXT = "Bird codes detected."
+DEFAULT_HELPER_MESSAGE_TEXT = "🐦 Bird code detected"
+NFC_HELPER_MESSAGE_TEXT = "🌙 +🎙️ NFC code detected"
+
+NFC_CODES = {
+    "CUPS",
+    "SWLI",
+    "SFHS",
+    "HSSP",
+    "SBUF",
+    "DESP",
+    "DEWA",
+    "BUNT",
+    "GROS",
+    "THSH",
+    "GCBI",
+    "ZEEP",
+    "DBUP",
+    "BZWA",
+    "CCBRS",
+    "MWAR",
+    "TANA",
+    "BLUEB",
+}
 
 load_dotenv()
 
@@ -186,12 +208,6 @@ def load_bird_codes():
             if code and common_name:
                 codes[code] = common_name
 
-    print(f"Loaded {len(codes)} bird/NFC codes from {CODES_FILE.name}")
-
-    # Helpful startup checks for the current debugging session.
-    for test_code in ["AMRO", "AGOL", "CUPS", "CCBRS", "BLUEB", "ZEEP"]:
-        print(f"Startup code check: {test_code} -> {codes.get(test_code)!r}")
-
     return codes
 
 
@@ -263,6 +279,18 @@ def decode_codes_from_message_and_title(message):
     return unique_results(message_results + title_results)
 
 
+def get_helper_message_text(results):
+    """
+    Use the NFC helper text if any matched code is one of the NFC call-type codes.
+    Otherwise use the default bird-code helper text.
+    """
+    for code, _common_name in results:
+        if code in NFC_CODES:
+            return NFC_HELPER_MESSAGE_TEXT
+
+    return DEFAULT_HELPER_MESSAGE_TEXT
+
+
 def format_results(results):
     if not results:
         return "I didn’t find any recognized bird codes in that message or thread title."
@@ -285,7 +313,7 @@ def is_helper_message(message):
 
     content = (message.content or "").strip()
 
-    if content == HELPER_MESSAGE_TEXT:
+    if content in {DEFAULT_HELPER_MESSAGE_TEXT, NFC_HELPER_MESSAGE_TEXT}:
         return True
 
     # The ephemeral button response usually has one or more decoded lines like:
@@ -302,10 +330,10 @@ class ShowBirdCodesView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-    label="Show me",
-    style=discord.ButtonStyle.secondary,
-    custom_id="bird_code_helper_show_me",
-)
+        label="Show me",
+        style=discord.ButtonStyle.secondary,
+        custom_id="bird_code_helper_show_me",
+    )
     async def show_me(
         self,
         interaction: discord.Interaction,
@@ -410,74 +438,42 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    print(
-        f"on_message fired | author_bot={message.author.bot} | "
-        f"guild={message.guild.id if message.guild else 'dm'} | "
-        f"channel={message.channel.id} | "
-        f"channel_type={type(message.channel).__name__} | "
-        f"content={message.content!r}"
-    )
-
+    # Ignore bot messages, webhook messages, and this bot's own helper messages.
     if message.author.bot:
-        print("return: author is bot")
         return
 
     if getattr(message, "webhook_id", None):
-        print("return: webhook message")
         return
 
     if is_helper_message(message):
-        print("return: helper message")
         return
 
-    print(f"ENABLED_CHANNEL_IDS_RAW={ENABLED_CHANNEL_IDS_RAW!r}")
-    print(f"ENABLED_CHANNEL_IDS={sorted(ENABLED_CHANNEL_IDS)}")
-
-    parent = getattr(message.channel, "parent", None)
-    if parent:
-        print(f"parent channel id={parent.id} | parent type={type(parent).__name__}")
-    else:
-        print("parent channel id=None")
-
-    enabled = channel_is_enabled(message)
-    print(f"channel_is_enabled={enabled}")
-
-    if not enabled:
-        print("return: channel not enabled")
+    # Optional channel restriction.
+    # If ENABLED_CHANNEL_IDS is empty, the bot works in all channels it can read.
+    if not channel_is_enabled(message):
         return
 
-    title_text = get_thread_title_text_from_message(message)
-    print(f"thread/forum title text={title_text!r}")
-
-    message_results = decode_codes_in_text(message.content or "")
-    title_results = decode_codes_in_text(title_text)
-    results = unique_results(message_results + title_results)
-
-    print(f"message_results={message_results}")
-    print(f"title_results={title_results}")
-    print(f"decoded results={results}")
+    results = decode_codes_from_message_and_title(message)
 
     if not results:
-        print("return: no decoded results")
         return
 
+    # Limit automatic helper reply to once per UTC day per code per thread/channel.
     new_codes_today = get_new_codes_today(message, results)
-    print(f"new_codes_today={new_codes_today}")
 
     if not new_codes_today:
-        print("return: cooldown suppressing reply")
         return
 
+    helper_message_text = get_helper_message_text(results)
+
     try:
-        print("attempting message.reply")
         await message.reply(
-            HELPER_MESSAGE_TEXT,
+            helper_message_text,
             view=ShowBirdCodesView(),
             mention_author=False,
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-        print("sent helper reply")
         mark_codes_seen_today(message, new_codes_today)
 
     except discord.Forbidden as e:
