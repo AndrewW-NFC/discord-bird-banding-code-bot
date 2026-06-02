@@ -18,6 +18,8 @@ STATE_FILE = BASE_DIR / "bird_code_state.json"
 DEFAULT_HELPER_MESSAGE_TEXT = "🐦 Bird code detected"
 NFC_HELPER_MESSAGE_TEXT = "🌙 +🎙️ NFC code detected"
 
+PRIOR_MESSAGE_LOOKBACK_LIMIT = 50
+
 NFC_CODES = {
     "CUPS",
     "SWLI",
@@ -227,21 +229,93 @@ BIRD_CODES = load_bird_codes()
 CODE_PATTERN = re.compile(r"\b(?:[A-Z]{4,5}|zeep)\b")
 
 
+def normalize_search_text(text):
+    """
+    Normalize text for common-name matching.
+
+    This makes matching more forgiving around case, punctuation, apostrophes,
+    slashes, and repeated spaces.
+    """
+    if not text:
+        return ""
+
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def text_contains_common_name(text, common_name):
+    """
+    Return True if the common name appears in the supplied text.
+
+    This is case-insensitive and punctuation-tolerant.
+    """
+    normalized_text = normalize_search_text(text)
+    normalized_name = normalize_search_text(common_name)
+
+    if not normalized_text or not normalized_name:
+        return False
+
+    return normalized_name in normalized_text
+
+
+async def common_name_appears_in_prior_messages(message, common_name):
+    """
+    Check whether the common name appeared in earlier messages in the same
+    channel/thread.
+
+    The limit is intentionally capped at PRIOR_MESSAGE_LOOKBACK_LIMIT so the bot
+    does not scan a very long channel or forum thread every time someone posts
+    a code.
+    """
+    try:
+        async for prior_message in message.channel.history(
+            limit=PRIOR_MESSAGE_LOOKBACK_LIMIT,
+            before=message,
+            oldest_first=False,
+        ):
+            if prior_message.author.bot:
+                continue
+
+            if text_contains_common_name(prior_message.content or "", common_name):
+                return True
+
+    except (discord.Forbidden, discord.HTTPException):
+        # If history lookup fails, do not suppress the bot.
+        return False
+
+    return False
+
+
+def decode_single_raw_code(raw_code):
+    """
+    Normalize one matched raw code and look it up.
+    """
+    if raw_code == "zeep":
+        code = "ZEEP"
+    else:
+        code = raw_code.upper()
+
+    common_name = BIRD_CODES.get(code)
+
+    if not common_name:
+        return None
+
+    return code, common_name
+
+
 def decode_codes_in_text(text):
+    """
+    Decode all recognized codes in a text string without applying the
+    common-name-before-code suppression rule.
+    """
     found = []
 
     for match in CODE_PATTERN.finditer(text or ""):
-        raw_code = match.group(0)
+        decoded = decode_single_raw_code(match.group(0))
 
-        if raw_code == "zeep":
-            code = "ZEEP"
-        else:
-            code = raw_code.upper()
-
-        common_name = BIRD_CODES.get(code)
-
-        if common_name:
-            found.append((code, common_name))
+        if decoded:
+            found.append(decoded)
 
     return found
 
@@ -272,11 +346,58 @@ def get_thread_title_text_from_message(message):
     return ""
 
 
-def decode_codes_from_message_and_title(message):
-    message_results = decode_codes_in_text(message.content or "")
-    title_results = decode_codes_in_text(get_thread_title_text_from_message(message))
+async def decode_codes_from_message_and_title(message):
+    """
+    Decode codes from the current message and thread/forum title.
 
-    return unique_results(message_results + title_results)
+    Suppress a matched code if that code's common name already appears:
+    - in the thread/forum title
+    - earlier in the same message before the code
+    - in one of the previous PRIOR_MESSAGE_LOOKBACK_LIMIT messages in the same
+      channel/thread
+    """
+    results = []
+
+    message_text = message.content or ""
+    title_text = get_thread_title_text_from_message(message)
+
+    # Decode codes in the thread/forum title.
+    # If the title itself contains both the common name and the code, suppress.
+    for match in CODE_PATTERN.finditer(title_text):
+        decoded = decode_single_raw_code(match.group(0))
+
+        if not decoded:
+            continue
+
+        code, common_name = decoded
+
+        if text_contains_common_name(title_text, common_name):
+            continue
+
+        results.append((code, common_name))
+
+    # Decode codes in the message, applying the common-name-before-code rule.
+    for match in CODE_PATTERN.finditer(message_text):
+        decoded = decode_single_raw_code(match.group(0))
+
+        if not decoded:
+            continue
+
+        code, common_name = decoded
+        text_before_code = message_text[:match.start()]
+
+        if text_contains_common_name(title_text, common_name):
+            continue
+
+        if text_contains_common_name(text_before_code, common_name):
+            continue
+
+        if await common_name_appears_in_prior_messages(message, common_name):
+            continue
+
+        results.append((code, common_name))
+
+    return unique_results(results)
 
 
 def get_helper_message_text(results):
@@ -395,7 +516,7 @@ class ShowBirdCodesView(discord.ui.View):
             )
             return
 
-        results = decode_codes_from_message_and_title(source_message)
+        results = await decode_codes_from_message_and_title(source_message)
         response = format_results(results)
 
         await interaction.response.send_message(
@@ -453,7 +574,7 @@ async def on_message(message):
     if not channel_is_enabled(message):
         return
 
-    results = decode_codes_from_message_and_title(message)
+    results = await decode_codes_from_message_and_title(message)
 
     if not results:
         return
