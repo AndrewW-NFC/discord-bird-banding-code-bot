@@ -191,16 +191,31 @@ def load_bird_codes():
 
 BIRD_CODES = load_bird_codes()
 
-# Match standalone 4- or 5-letter uppercase codes, not pieces of longer words.
-# The 5-letter allowance is needed for NFC call-type codes such as CCBRS and BLUEB.
-CODE_PATTERN = re.compile(r"\b[A-Z]{4,5}\b")
+# Match standalone uppercase 4- or 5-letter codes, plus one special lowercase
+# NFC call-type exception: "zeep".
+#
+# This means:
+# - AMRO works
+# - CUPS works
+# - CCBRS works
+# - BLUEB works
+# - ZEEP works
+# - zeep also works and outputs as ZEEP
+# - cups, amro, ccbrs, blueb do not auto-trigger
+CODE_PATTERN = re.compile(r"\b(?:[A-Z]{4,5}|zeep)\b")
 
 
 def decode_codes_in_text(text):
     found = []
 
     for match in CODE_PATTERN.finditer(text or ""):
-        code = match.group(0).upper()
+        raw_code = match.group(0)
+
+        if raw_code == "zeep":
+            code = "ZEEP"
+        else:
+            code = raw_code.upper()
+
         common_name = BIRD_CODES.get(code)
 
         if common_name:
@@ -435,7 +450,7 @@ async def on_message(message):
 
 
 @bot.tree.command(name="birdcode", description="Look up a 4- or 5-letter bird/NFC code.")
-@app_commands.describe(code="Example: AMRO, NOCA, CUPS, CCBRS")
+@app_commands.describe(code="Example: AMRO, NOCA, CUPS, CCBRS, zeep")
 async def birdcode(interaction: discord.Interaction, code: str):
     normalized = code.strip().upper()
     common_name = BIRD_CODES.get(normalized)
