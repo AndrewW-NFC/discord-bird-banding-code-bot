@@ -18,6 +18,7 @@ STATE_FILE = BASE_DIR / "bird_code_state.json"
 DEFAULT_HELPER_MESSAGE_TEXT = "🐦 Bird code detected"
 NFC_HELPER_MESSAGE_TEXT = "🌙 +🎙️ NFC code detected"
 
+NFC_REFERENCE_BASE_URL = "https://beki.jamessw.com/nfc"
 PRIOR_MESSAGE_LOOKBACK_LIMIT = 50
 
 NFC_CODES = {
@@ -416,10 +417,16 @@ def format_results(results):
     if not results:
         return "I didn’t find any recognized bird codes in that message or thread title."
 
-    return "\n".join(
-        f"**{code}** = {common_name}"
-        for code, common_name in results
-    )
+    lines = []
+
+    for code, common_name in results:
+        if code in NFC_CODES:
+            linked_common_name = f"[{common_name}]({NFC_REFERENCE_BASE_URL}#{code})"
+            lines.append(f"**{code}** = {linked_common_name}")
+        else:
+            lines.append(f"**{code}** = {common_name}")
+
+    return "\n".join(lines)
 
 
 def is_helper_message(message):
