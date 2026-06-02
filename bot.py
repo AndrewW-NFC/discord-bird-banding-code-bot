@@ -15,7 +15,10 @@ BASE_DIR = Path(__file__).resolve().parent
 CODES_FILE = BASE_DIR / "bird_codes.csv"
 STATE_FILE = BASE_DIR / "bird_code_state.json"
 
+HELPER_MESSAGE_TEXT = "Bird codes detected."
+
 load_dotenv()
+
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
 # Optional:
@@ -68,6 +71,7 @@ def save_state(state):
 def get_thread_or_channel_key(message):
     """
     Discord threads are channels.
+
     For a thread/forum post, message.channel.id is the thread ID.
     For a normal text channel, message.channel.id is the channel ID.
     """
@@ -93,14 +97,15 @@ def get_codes_from_results(results):
 
 def get_new_codes_today(message, results):
     """
-    Return codes in this message/title that have not yet triggered
-    the helper today in this thread/channel.
+    Return codes in this message/title that have not yet triggered the helper
+    today in this thread/channel.
     """
     state = load_state()
     key = get_thread_or_channel_key(message)
     today = today_key()
 
     all_codes_in_message = get_codes_from_results(results)
+
     thread_state = state.get(key, {})
 
     # Backward compatibility: older state used state[key] = "YYYY-MM-DD".
@@ -119,8 +124,7 @@ def get_new_codes_today(message, results):
 
 def mark_codes_seen_today(message, codes):
     """
-    Mark specific codes as having triggered the helper today
-    in this thread/channel.
+    Mark specific codes as having triggered the helper today in this thread/channel.
     """
     if not codes:
         return
@@ -174,6 +178,7 @@ def load_bird_codes():
 
     with CODES_FILE.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
+
         for row in reader:
             code = row["code"].strip().upper()
             common_name = row["common_name"].strip()
@@ -186,8 +191,9 @@ def load_bird_codes():
 
 BIRD_CODES = load_bird_codes()
 
-# Match standalone 4-letter uppercase codes, not pieces of longer words.
-CODE_PATTERN = re.compile(r"\b[A-Z]{4}\b")
+# Match standalone 4- or 5-letter uppercase codes, not pieces of longer words.
+# The 5-letter allowance is needed for NFC call-type codes such as CCBRS and BLUEB.
+CODE_PATTERN = re.compile(r"\b[A-Z]{4,5}\b")
 
 
 def decode_codes_in_text(text):
@@ -217,9 +223,11 @@ def unique_results(results):
 
 def get_thread_title_text_from_message(message):
     """
-    If the message is inside a thread or forum post, message.channel.name is
-    the thread/forum post title. For ordinary text channels, this function
-    returns an empty string so the bot does not scan channel names.
+    If the message is inside a thread or forum post, message.channel.name is the
+    thread/forum post title.
+
+    For ordinary text channels, this function returns an empty string so the bot
+    does not scan channel names.
     """
     if isinstance(message.channel, discord.Thread):
         return message.channel.name or ""
@@ -238,7 +246,33 @@ def format_results(results):
     if not results:
         return "I didn’t find any recognized bird codes in that message or thread title."
 
-    return "\n".join(f"**{code}** = {common_name}" for code, common_name in results)
+    return "\n".join(
+        f"**{code}** = {common_name}"
+        for code, common_name in results
+    )
+
+
+def is_helper_message(message):
+    """
+    Return True for this bot's own helper/display messages.
+
+    This is extra protection against recursive helper behavior if Discord surfaces
+    an interaction/helper message in a way that reaches on_message.
+    """
+    if not message.author.bot:
+        return False
+
+    content = (message.content or "").strip()
+
+    if content == HELPER_MESSAGE_TEXT:
+        return True
+
+    # The ephemeral button response usually has one or more decoded lines like:
+    # **CUPS** = Cup-shaped sparrow call type.
+    if re.search(r"\*\*[A-Z]{4,5}\*\*\s*=", content):
+        return True
+
+    return False
 
 
 class ShowBirdCodesView(discord.ui.View):
@@ -249,7 +283,7 @@ class ShowBirdCodesView(discord.ui.View):
     @discord.ui.button(
         label="Show me",
         style=discord.ButtonStyle.secondary,
-        emoji="🐦",
+        emoji="",
         custom_id="bird_code_helper_show_me",
     )
     async def show_me(
@@ -275,6 +309,14 @@ class ShowBirdCodesView(discord.ui.View):
             )
             return
 
+        # Guard against an accidental self-reference.
+        if source_message_id == helper_message.id:
+            await interaction.response.send_message(
+                "I couldn’t find the original user message.",
+                ephemeral=True,
+            )
+            return
+
         try:
             source_message = await interaction.channel.fetch_message(source_message_id)
         except discord.NotFound:
@@ -292,6 +334,15 @@ class ShowBirdCodesView(discord.ui.View):
         except discord.HTTPException:
             await interaction.response.send_message(
                 "Something went wrong while reading the original message.",
+                ephemeral=True,
+            )
+            return
+
+        # Do not decode bot/helper messages. This prevents a helper response from
+        # becoming the source for another helper-style response.
+        if source_message.author.bot or is_helper_message(source_message):
+            await interaction.response.send_message(
+                "I couldn’t find the original user message.",
                 ephemeral=True,
             )
             return
@@ -327,18 +378,26 @@ async def on_ready():
     # If GUILD_ID is present, this clears old server-specific commands,
     # including the former Apps → Bird Code Helper → Decode bird codes command.
     guild_id = os.getenv("GUILD_ID")
+
     if guild_id:
         guild = discord.Object(id=int(guild_id))
         bot.tree.clear_commands(guild=guild)
         guild_synced = await bot.tree.sync(guild=guild)
+
         print(f"Cleared server-specific commands for {guild_id}.")
         print(f"Synced {len(guild_synced)} server-specific command(s).")
 
 
 @bot.event
 async def on_message(message):
-    # Ignore bot messages, including this bot's own helper messages.
+    # Ignore bot messages, webhook messages, and this bot's own helper messages.
     if message.author.bot:
+        return
+
+    if getattr(message, "webhook_id", None):
+        return
+
+    if is_helper_message(message):
         return
 
     # Optional channel restriction.
@@ -359,12 +418,14 @@ async def on_message(message):
 
     try:
         await message.reply(
-            "Bird codes detected.",
+            HELPER_MESSAGE_TEXT,
             view=ShowBirdCodesView(),
             mention_author=False,
             allowed_mentions=discord.AllowedMentions.none(),
         )
+
         mark_codes_seen_today(message, new_codes_today)
+
     except discord.Forbidden:
         # Bot lacks permission to reply in this channel.
         pass
@@ -373,8 +434,8 @@ async def on_message(message):
         pass
 
 
-@bot.tree.command(name="birdcode", description="Look up a 4-letter bird code.")
-@app_commands.describe(code="Example: AMRO, NOCA, BCCH")
+@bot.tree.command(name="birdcode", description="Look up a 4- or 5-letter bird/NFC code.")
+@app_commands.describe(code="Example: AMRO, NOCA, CUPS, CCBRS")
 async def birdcode(interaction: discord.Interaction, code: str):
     normalized = code.strip().upper()
     common_name = BIRD_CODES.get(normalized)
@@ -386,7 +447,7 @@ async def birdcode(interaction: discord.Interaction, code: str):
         )
     else:
         await interaction.response.send_message(
-            f"I don’t recognize **{normalized}** as a bird code in the current list.",
+            f"I don’t recognize **{normalized}** as a bird/NFC code in the current list.",
             ephemeral=True,
         )
 
