@@ -405,6 +405,13 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
+    print(
+        f"on_message fired | author_bot={message.author.bot} | "
+        f"channel={message.channel.id} | content={message.content!r}"
+    )
+
+    if message.author.bot:
+        return
     # Ignore bot messages, webhook messages, and this bot's own helper messages.
     if message.author.bot:
         return
