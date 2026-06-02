@@ -302,11 +302,10 @@ class ShowBirdCodesView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="Show me",
-        style=discord.ButtonStyle.secondary,
-        emoji="",
-        custom_id="bird_code_helper_show_me",
-    )
+    label="Show me",
+    style=discord.ButtonStyle.secondary,
+    custom_id="bird_code_helper_show_me",
+)
     async def show_me(
         self,
         interaction: discord.Interaction,
