@@ -186,6 +186,12 @@ def load_bird_codes():
             if code and common_name:
                 codes[code] = common_name
 
+    print(f"Loaded {len(codes)} bird/NFC codes from {CODES_FILE.name}")
+
+    # Helpful startup checks for the current debugging session.
+    for test_code in ["AMRO", "AGOL", "CUPS", "CCBRS", "BLUEB", "ZEEP"]:
+        print(f"Startup code check: {test_code} -> {codes.get(test_code)!r}")
+
     return codes
 
 
@@ -407,38 +413,64 @@ async def on_ready():
 async def on_message(message):
     print(
         f"on_message fired | author_bot={message.author.bot} | "
-        f"channel={message.channel.id} | content={message.content!r}"
+        f"guild={message.guild.id if message.guild else 'dm'} | "
+        f"channel={message.channel.id} | "
+        f"channel_type={type(message.channel).__name__} | "
+        f"content={message.content!r}"
     )
 
     if message.author.bot:
-        return
-    # Ignore bot messages, webhook messages, and this bot's own helper messages.
-    if message.author.bot:
+        print("return: author is bot")
         return
 
     if getattr(message, "webhook_id", None):
+        print("return: webhook message")
         return
 
     if is_helper_message(message):
+        print("return: helper message")
         return
 
-    # Optional channel restriction.
-    # If ENABLED_CHANNEL_IDS is empty, the bot works in all channels it can read.
-    if not channel_is_enabled(message):
+    print(f"ENABLED_CHANNEL_IDS_RAW={ENABLED_CHANNEL_IDS_RAW!r}")
+    print(f"ENABLED_CHANNEL_IDS={sorted(ENABLED_CHANNEL_IDS)}")
+
+    parent = getattr(message.channel, "parent", None)
+    if parent:
+        print(f"parent channel id={parent.id} | parent type={type(parent).__name__}")
+    else:
+        print("parent channel id=None")
+
+    enabled = channel_is_enabled(message)
+    print(f"channel_is_enabled={enabled}")
+
+    if not enabled:
+        print("return: channel not enabled")
         return
 
-    results = decode_codes_from_message_and_title(message)
+    title_text = get_thread_title_text_from_message(message)
+    print(f"thread/forum title text={title_text!r}")
+
+    message_results = decode_codes_in_text(message.content or "")
+    title_results = decode_codes_in_text(title_text)
+    results = unique_results(message_results + title_results)
+
+    print(f"message_results={message_results}")
+    print(f"title_results={title_results}")
+    print(f"decoded results={results}")
 
     if not results:
+        print("return: no decoded results")
         return
 
-    # Limit automatic helper reply to once per UTC day per code per thread/channel.
     new_codes_today = get_new_codes_today(message, results)
+    print(f"new_codes_today={new_codes_today}")
 
     if not new_codes_today:
+        print("return: cooldown suppressing reply")
         return
 
     try:
+        print("attempting message.reply")
         await message.reply(
             HELPER_MESSAGE_TEXT,
             view=ShowBirdCodesView(),
@@ -446,14 +478,13 @@ async def on_message(message):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
+        print("sent helper reply")
         mark_codes_seen_today(message, new_codes_today)
 
-    except discord.Forbidden:
-        # Bot lacks permission to reply in this channel.
-        pass
-    except discord.HTTPException:
-        # Avoid crashing the bot for one failed helper message.
-        pass
+    except discord.Forbidden as e:
+        print(f"reply failed: discord.Forbidden: {e}")
+    except discord.HTTPException as e:
+        print(f"reply failed: discord.HTTPException: {e}")
 
 
 @bot.tree.command(name="birdcode", description="Look up a 4- or 5-letter bird/NFC code.")
