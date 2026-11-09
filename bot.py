@@ -364,7 +364,10 @@ async def decode_codes_from_message_and_title(message):
 
     # Decode codes in the thread/forum title.
     # If the title itself contains both the common name and the code, suppress.
-    for match in CODE_PATTERN.finditer(title_text):
+    # Only scan the title when processing the thread's original post.
+    for match in CODE_PATTERN.finditer(
+        title_text if message.id == message.channel.id else ""
+    ):
         decoded = decode_single_raw_code(match.group(0))
 
         if not decoded:
